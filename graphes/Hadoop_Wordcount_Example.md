@@ -10,6 +10,8 @@ After we finish Command Prompt.
 
 We can use windows file explorer to get the address of **Hadoop'sbin folder** and *copy it*
 
+> cd : change directory
+
 then we could paste *the address* in **command prompt** like this below
 
 ```
