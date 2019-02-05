@@ -48,7 +48,7 @@ Start in *s*bin folder, but we should operate hadoop in **bin folder**.
 
 In order to switch directory from one to the neightbor one, we could use :
 ```
-..\bin
+cd ..\bin
 ```
 **Because we could know bin and sbin are in Hadoop2.8.0 folder.**
 
