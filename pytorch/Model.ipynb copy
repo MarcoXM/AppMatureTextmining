@@ -1,0 +1,752 @@
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": 2,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "================================================================================\n",
+      "Loading Success ！！\n",
+      "================================================================================\n",
+      "999994\n"
+     ]
+    }
+   ],
+   "source": [
+    "from __future__ import print_function\n",
+    "import pandas as pd\n",
+    "from nltk.tokenize import regexp_tokenize\n",
+    "from gensim.models import KeyedVectors\n",
+    "from gensim.models import word2vec\n",
+    "from gensim.scripts import glove2word2vec\n",
+    "import torch\n",
+    "import torch.nn as nn\n",
+    "from torch.autograd import Variable\n",
+    "import torch.optim as optim\n",
+    "import torch.nn.functional as F\n",
+    "import nltk\n",
+    "import random\n",
+    "import numpy as np\n",
+    "from collections import Counter, OrderedDict\n",
+    "import nltk\n",
+    "flatten = lambda l: [item for sublist in l for item in sublist]\n",
+    "random.seed(224)\n",
+    "\n",
+    "##########################################\n",
+    "#Importing wiki vector####################\n",
+    "##########################################\n",
+    "## Mac\n",
+    "wiki_en = KeyedVectors.load_word2vec_format('/Users/marcowang/Downloads/text_project/data/word2vec_pretrain_data/wiki-news-300d-1M.vec')\n",
+    "\n",
+    "# Ubantu\n",
+    "#wiki_en = KeyedVectors.load_word2vec_format('/home/marco/Downloads/wiki-news-300d-1M.vec')\n",
+    "\n",
+    "print('=' * 80)\n",
+    "print('Loading Success ！！')\n",
+    "print('=' * 80)\n",
+    "\n",
+    "vocab_wiki = list(wiki_en.vocab.keys())\n",
+    "print(len(vocab_wiki)) ### pretrain vocab)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 145,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "#loading data\n",
+    "#Mac\n",
+    "news = pd.read_csv('/Users/marcowang/Downloads/APPLE_above10.csv',index_col=0)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 190,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "((22341, 28), 22338)"
+      ]
+     },
+     "execution_count": 190,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "news.shape,len(new_token)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 192,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "164683\n"
+     ]
+    }
+   ],
+   "source": [
+    "\n",
+    "\n",
+    "#Ubantu\n",
+    "#news = pd.read_csv('/home/marco/Dropbox/Textnews/TextProject/sample_data/news20190406_285.csv',index_col=None)\n",
+    "\n",
+    "newsText = [x.split('\\\\n')[3].replace('<br>-','').replace('<br>','') for x in news['Description']]\n",
+    "flatten = lambda l:[item for sublist in  l for item in sublist]\n",
+    "newsToken = [regexp_tokenize(sent,pattern = '\\w+|\\$[\\d\\.]+|\\S+') for sent in newsText] #####?\n",
+    "new_token = [x for x in newsToken] ##for clean \n",
+    "flatToken = flatten(new_token)\n",
+    "allWords = [w.lower() for w in flatToken]\n",
+    "vocabulary = list(set(allWords))  # news vocabulary \n",
+    "print(len(vocabulary))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 200,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "'      A.L.E.X. is a fun puzzle game and a great way to train your brain. A.L.E.X. helps you think and plan logically as you program your robot A.L.E.X. with a sequence of commands to get through each level from start to finish. I named A.L.E.X. after my nephew, and created a game I would want him to play. The lower levels of the games are suitable for children as young as six and the game is enjoyable for adults too! FREE VERSION Includes 25 levels Includes feature to create your own puzzle UPGRADE 35 additional levels More block types to create your own puzzles 3 additional looks for A.L.E.X.'"
+      ]
+     },
+     "execution_count": 200,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "newsText[0]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 201,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "#news['Description'][9].split('\\\\n')[3]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 202,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "#word 2 index in corpus\n",
+    "word2index={'<PAD>': 0, '<UNK>': 1} # pad means padding !\n",
+    "\n",
+    "for vo in vocabulary:\n",
+    "    if word2index.get(vo) is None:\n",
+    "        word2index[vo] = len(word2index)\n",
+    "        \n",
+    "index2word = {v:k for k, v in word2index.items()}"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 203,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "y_rate = list(news['Rating'])\n",
+    "# negative impact label as '2'\n",
+    "def binaryData(y,label):\n",
+    "    ys = y[:]\n",
+    "    for i in range(len(ys)):\n",
+    "        if ys[i] == label:\n",
+    "            ys[i] = np.array(1)\n",
+    "        else:\n",
+    "            ys[i] = np.array(0)\n",
+    "    return list(ys)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 204,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "y_4 = binaryData(y_rate,label = 4)\n",
+    "y_9 = binaryData(y_rate,label = 9)\n",
+    "y_12 = binaryData(y_rate,label = 12)\n",
+    "y_17 = binaryData(y_rate,label = 17)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 205,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# For GPU use\n",
+    "USE_CUDA = torch.cuda.is_available()\n",
+    "\n",
+    "FloatTensor = torch.cuda.FloatTensor if USE_CUDA else torch.FloatTensor\n",
+    "LongTensor = torch.cuda.LongTensor if USE_CUDA else torch.LongTensor\n",
+    "ByteTensor = torch.cuda.ByteTensor if USE_CUDA else torch.ByteTensor\n",
+    "\n",
+    "# Batch\n",
+    "def getBatch(batch_size, train_data):\n",
+    "        random.shuffle(train_data)\n",
+    "        sindex = 0\n",
+    "        eindex = batch_size\n",
+    "        while eindex < len(train_data):\n",
+    "            batch = train_data[sindex: eindex]\n",
+    "            temp = eindex\n",
+    "            eindex = eindex + batch_size\n",
+    "            sindex = temp\n",
+    "            yield batch\n",
+    "\n",
+    "        if eindex >= len(train_data):\n",
+    "            batch = train_data[sindex:]\n",
+    "            yield batch\n",
+    "\n",
+    "\n",
+    "\n",
+    "\n",
+    "#seq text transform\n",
+    "def prepare_sequence(seq, to_index):\n",
+    "    idxs = list(map(lambda w: to_index[w] if to_index.get(w) is not None else to_index[\"<UNK>\"], seq))\n",
+    "    return Variable(LongTensor(idxs))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 206,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "image/png": "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\n",
+      "text/plain": [
+       "<Figure size 432x288 with 1 Axes>"
+      ]
+     },
+     "metadata": {
+      "needs_background": "light"
+     },
+     "output_type": "display_data"
+    },
+    {
+     "data": {
+      "text/plain": [
+       "1325"
+      ]
+     },
+     "execution_count": 206,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "xxx= [len(x) for x in new_token]\n",
+    "import matplotlib.pyplot as plt\n",
+    "plt.hist(xxx)\n",
+    "plt.show()\n",
+    "max(xxx)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 208,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def pad_to_batch(batch,max_x = 955):\n",
+    "    x,y = zip(*batch)\n",
+    "    \n",
+    "    x_p = []\n",
+    "    for i in range(len(batch)):\n",
+    "        if x[i].size(1) < max_x:\n",
+    "            x_p.append(torch.cat([x[i], Variable(LongTensor([word2index['<PAD>']] * (max_x - x[i].size(1)))).view(1, -1)], 1))\n",
+    "        else:\n",
+    "            x_p.append(x[i])\n",
+    "    return torch.cat(x_p), torch.cat(y).type(LongTensor).view(-1)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 209,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "#pretrain vector\n",
+    "pretrained = []\n",
+    "\n",
+    "for key in word2index.keys():\n",
+    "    try:\n",
+    "        pretrained.append(wiki_en[word2index[key]])\n",
+    "    except:\n",
+    "        pretrained.append(np.random.randn(300))\n",
+    "        \n",
+    "pretrained_vectors = np.vstack(pretrained)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 210,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "tensor([[     1,      1,   2906,    878,  72032, 146178,  81086,  64699,    878,\n",
+       "         148599, 109143, 102274, 121835,  28322,  59804, 142610,      1,      1,\n",
+       "         100551,    656,  20799,  64699,  10454,  58337, 117301,    656,  58959,\n",
+       "          28322,  62290,      1,      1, 138873,    878, 140406,  25106, 132972,\n",
+       "         102274,  36741,  38238,  34045, 114918,  74721,  30662, 102274, 114152,\n",
+       "         142610,      1, 144044,      1,      1, 103788,  84738,  53654, 134739,\n",
+       "          64699,  19021,    878,  81086,      1,  88368,   3880, 144177, 102274,\n",
+       "          67464, 142610,      1,  94740, 111241,  25106,  93006,  62679,   4999,\n",
+       "         136594,  41810, 148928, 117301, 111612, 117301,  93857,  64699,  93006,\n",
+       "          81086,   2906,  53512,  41810, 138175,  65058,  96880,      1,      1,\n",
+       "              1,  44431, 111241,      1,  82448, 102274,  17133,  28322,  22276,\n",
+       "         146178,      1, 159526,  45616, 111241,      1,  23014,  30229, 102274,\n",
+       "          17133,  28322,  22276, 129205,  54336,  45616,  62654,  41810,      1,\n",
+       "              1]])"
+      ]
+     },
+     "execution_count": 210,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "# 4\n",
+    "X_p, y_p = [],[]\n",
+    "\n",
+    "for x,y in zip(newsToken,y_4):\n",
+    "    if len(x) <=1000:\n",
+    "        #print(y)\n",
+    "        X_p.append(prepare_sequence(x, word2index).view(1, -1))\n",
+    "        #print(Variable(LongTensor(y).view(1, -1)))\n",
+    "        y_p.append(Variable(torch.from_numpy(y).view(1, -1)))\n",
+    "        \n",
+    "    \n",
+    "data_p = list(zip(X_p,y_p))\n",
+    "random.shuffle(data_p)\n",
+    "\n",
+    "train_data = data_p[: int(len(data_p) * 0.8)]\n",
+    "test_data = data_p[int(len(data_p) * 0.2):]\n",
+    "X_p[0]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 211,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "(tensor([[1]]), torch.Tensor)"
+      ]
+     },
+     "execution_count": 211,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "train_data[4][1],type(train_data[4][1])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 212,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "##Model Structure \n",
+    "class Rate(nn.Module):\n",
+    "    \n",
+    "    def __init__(self, vocab_size, embedding_dim):\n",
+    "        super(Rate,self).__init__()\n",
+    "        self.embedding_w = nn.Embedding(vocab_size, embedding_dim)\n",
+    "        self.rnn = nn.LSTM(     # \n",
+    "        input_size = 300,      # vecter dimension\n",
+    "        hidden_size=64,     # rnn hidden unit\n",
+    "        num_layers=1,       # \n",
+    "        batch_first=True,   # input & output \n",
+    "        )\n",
+    "        self.out = nn.Linear(64, 2) #  1 class\n",
+    "        \n",
+    "    \n",
+    "    \n",
+    "    def init_weights(self, pretrained_word_vectors, is_static=True):\n",
+    "        self.embedding_w.weight = nn.Parameter(torch.from_numpy(pretrained_word_vectors).float())\n",
+    "        if is_static:\n",
+    "            self.embedding_w.weight.requires_grad = False\n",
+    "\n",
+    "\n",
+    "    def forward(self, inputs, is_training=False):\n",
+    "        inputs = self.embedding_w(inputs) # \n",
+    "        r_out, (h_n, h_c) = self.rnn(inputs, None)\n",
+    "        out = self.out(r_out[:, -1, :])\n",
+    "        return out"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "0\n",
+      "Epoch:  0/10 | train loss: 0.7260 | test accuracy: 0.39\n",
+      "1\n",
+      "2\n",
+      "3\n",
+      "4\n",
+      "5\n",
+      "6\n",
+      "7\n",
+      "8\n",
+      "9\n",
+      "10\n",
+      "11\n",
+      "12\n",
+      "13\n",
+      "14\n",
+      "15\n",
+      "16\n",
+      "17\n",
+      "18\n",
+      "19\n",
+      "20\n",
+      "21\n",
+      "22\n",
+      "23\n",
+      "24\n",
+      "25\n",
+      "26\n",
+      "27\n",
+      "28\n",
+      "29\n",
+      "30\n",
+      "31\n",
+      "32\n",
+      "33\n",
+      "34\n",
+      "35\n",
+      "0\n",
+      "Epoch:  1/10 | train loss: 0.6342 | test accuracy: 0.39\n",
+      "1\n",
+      "2\n",
+      "3\n",
+      "4\n",
+      "5\n",
+      "6\n",
+      "7\n",
+      "8\n",
+      "9\n",
+      "10\n",
+      "11\n",
+      "12\n",
+      "13\n",
+      "14\n",
+      "15\n",
+      "16\n",
+      "17\n",
+      "18\n",
+      "19\n",
+      "20\n",
+      "21\n",
+      "22\n",
+      "23\n",
+      "24\n",
+      "25\n",
+      "26\n",
+      "27\n",
+      "28\n",
+      "29\n",
+      "30\n",
+      "31\n",
+      "32\n",
+      "33\n",
+      "34\n",
+      "35\n",
+      "0\n",
+      "Epoch:  2/10 | train loss: 0.6013 | test accuracy: 0.39\n",
+      "1\n",
+      "2\n",
+      "3\n",
+      "4\n",
+      "5\n",
+      "6\n",
+      "7\n",
+      "8\n",
+      "9\n",
+      "10\n",
+      "11\n",
+      "12\n",
+      "13\n",
+      "14\n",
+      "15\n",
+      "16\n",
+      "17\n",
+      "18\n",
+      "19\n",
+      "20\n",
+      "21\n",
+      "22\n",
+      "23\n",
+      "24\n",
+      "25\n",
+      "26\n",
+      "27\n",
+      "28\n",
+      "29\n",
+      "30\n",
+      "31\n",
+      "32\n",
+      "33\n",
+      "34\n",
+      "35\n",
+      "0\n",
+      "Epoch:  3/10 | train loss: 0.6114 | test accuracy: 0.39\n",
+      "1\n",
+      "2\n",
+      "3\n",
+      "4\n",
+      "5\n",
+      "6\n",
+      "7\n",
+      "8\n",
+      "9\n",
+      "10\n",
+      "11\n",
+      "12\n",
+      "13\n",
+      "14\n",
+      "15\n",
+      "16\n",
+      "17\n",
+      "18\n",
+      "19\n",
+      "20\n",
+      "21\n",
+      "22\n",
+      "23\n",
+      "24\n",
+      "25\n",
+      "26\n",
+      "27\n",
+      "28\n",
+      "29\n",
+      "30\n",
+      "31\n",
+      "32\n",
+      "33\n",
+      "34\n",
+      "35\n",
+      "0\n",
+      "Epoch:  4/10 | train loss: 0.6494 | test accuracy: 0.39\n",
+      "1\n",
+      "2\n",
+      "3\n",
+      "4\n",
+      "5\n",
+      "6\n",
+      "7\n",
+      "8\n",
+      "9\n",
+      "10\n",
+      "11\n",
+      "12\n",
+      "13\n",
+      "14\n",
+      "15\n",
+      "16\n",
+      "17\n"
+     ]
+    }
+   ],
+   "source": [
+    "#4\n",
+    "EPOCH = 10\n",
+    "BATCH_SIZE = 500\n",
+    "LR = 0.001\n",
+    "TIME_STEP = 191          # rnn time step / \n",
+    "INPUT_SIZE = 5\n",
+    "\n",
+    "apmodel = Rate(len(word2index), 300)\n",
+    "apmodel.init_weights(pretrained_vectors) # initialize embedding matrix using pretrained vectors\n",
+    "\n",
+    "loss_function = nn.CrossEntropyLoss()\n",
+    "optimizer = optim.Adam(apmodel.parameters(), lr=LR)\n",
+    "\n",
+    "for epoch in range(EPOCH):\n",
+    "    losses = []\n",
+    "    for i,batch in enumerate(getBatch(BATCH_SIZE, train_data)):\n",
+    "        print(i)\n",
+    "        inputs,targets = pad_to_batch(batch)\n",
+    "        #print(targets.size())          \n",
+    "        apmodel.zero_grad()\n",
+    "        preds = apmodel(inputs,True)\n",
+    "        #print(preds.size())\n",
+    "        loss = loss_function(preds, targets)\n",
+    "        losses.append(loss.data.mean())\n",
+    "        loss.backward()\n",
+    "        \n",
+    "        \n",
+    "        optimizer.step()\n",
+    "        acc = 0\n",
+    "        if i % 100 == 0:\n",
+    "            for test in test_data:\n",
+    "                oup = apmodel(test[0])\n",
+    "                a = (torch.max(oup,1)[1].item())\n",
+    "                b = (test[1][0][0].item())\n",
+    "                if a == b:\n",
+    "                    acc +=1\n",
+    "            accuracy = acc/len(test_data)\n",
+    "            print('Epoch: ', str(epoch)+'/'+str(EPOCH), '| train loss: %.4f' % loss.data.numpy(), '| test accuracy: %.2f' % accuracy)\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 119,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "n_data = torch.ones(100, 2)         # 数据的基本形态\n",
+    "x0 = torch.normal(2*n_data, 1)      # 类型0 x data (tensor), shape=(100, 2)\n",
+    "y0 = torch.zeros(100)               # 类型0 y data (tensor), shape=(100, )\n",
+    "x1 = torch.normal(-2*n_data, 1)     # 类型1 x data (tensor), shape=(100, 1)\n",
+    "y1 = torch.ones(100)     "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 128,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# 注意 x, y 数据的数据形式是一定要像下面一样 (torch.cat 是在合并数据)\n",
+    "x = torch.cat((x0, x1), 0).type(torch.FloatTensor)  # FloatTensor = 32-bit floating\n",
+    "y = torch.cat((y0, y1), ).type(torch.LongTensor)    # LongTensor = 64-bit integer\n",
+    "\n",
+    "# plt.scatter(x.data.numpy()[:, 0], x.data.numpy()[:, 1], c=y.data.numpy(), s=100, lw=0, cmap='RdYlGn')\n",
+    "# plt.show()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# 4\n",
+    "X_p12, y_p12 = [],[]\n",
+    "\n",
+    "for x,y in zip(newsToken,y_12):\n",
+    "    if len(x) <=1000:\n",
+    "        #print(y)\n",
+    "        X_p12.append(prepare_sequence(x, word2index).view(1, -1))\n",
+    "        #print(Variable(LongTensor(y).view(1, -1)))\n",
+    "        y_p12.append(Variable(torch.from_numpy(y).view(1, -1)))\n",
+    "        \n",
+    "    \n",
+    "data_p12 = list(zip(X_p,y_p))\n",
+    "random.shuffle(data_p12)\n",
+    "\n",
+    "train_data12 = data_p[: int(len(data_p12) * 0.8)]\n",
+    "test_data12 = data_p[int(len(data_p12) * 0.2):]\n",
+    "X_p12[0]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "#4\n",
+    "EPOCH = 10\n",
+    "BATCH_SIZE = 500\n",
+    "LR = 0.001\n",
+    "TIME_STEP = 191          # rnn time step / \n",
+    "INPUT_SIZE = 5\n",
+    "\n",
+    "apmodel12 = Rate(len(word2index), 300)\n",
+    "apmodel12.init_weights(pretrained_vectors) # initialize embedding matrix using pretrained vectors\n",
+    "\n",
+    "loss_function = nn.CrossEntropyLoss()\n",
+    "optimizer = optim.Adam(apmodel12.parameters(), lr=LR)\n",
+    "\n",
+    "for epoch in range(EPOCH):\n",
+    "    losses = []\n",
+    "    for i,batch in enumerate(getBatch(BATCH_SIZE, train_data12)):\n",
+    "        print(i)\n",
+    "        inputs,targets = pad_to_batch(batch)\n",
+    "        #print(targets.size())          \n",
+    "        apmodel12.zero_grad()\n",
+    "        preds = apmodel12(inputs,True)\n",
+    "        #print(preds.size())\n",
+    "        loss = loss_function(preds, targets)\n",
+    "        losses.append(loss.data.mean())\n",
+    "        loss.backward()\n",
+    "        \n",
+    "        \n",
+    "        optimizer.step()\n",
+    "        acc = 0\n",
+    "        if i % 100 == 0:\n",
+    "            for test in test_data12:\n",
+    "                oup = apmodel12(test[0])\n",
+    "                a = (torch.max(oup,1)[1].item())\n",
+    "                b = (test[1][0][0].item())\n",
+    "                if a == b:\n",
+    "                    acc +=1\n",
+    "            accuracy = acc/len(test_data12)\n",
+    "            print('Epoch: ', str(epoch)+'/'+str(EPOCH), '| train loss: %.4f' % loss.data.numpy(), '| test accuracy: %.2f' % accuracy)\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.6.8"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 2
+}
